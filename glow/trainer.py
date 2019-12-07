@@ -54,6 +54,7 @@ class Trainer(object):
                                       drop_last=True)
         self.n_epoches = (hparams.Train.num_batches+len(self.data_loader)-1)
         self.n_epoches = self.n_epoches // len(self.data_loader)
+        print("n_epochs :", self.n_epoches)
         self.global_step = 0
         # lr schedule
         self.lrschedule = lrschedule

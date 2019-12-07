@@ -57,7 +57,7 @@ def _file_at_step(step):
 
 
 def _file_best():
-    return "trained.pkg"
+    return "locally_trained.pkg"
 
 
 def save(global_step, graph, optim, criterion_dict=None, pkg_dir="", is_best=False, max_checkpoints=None):

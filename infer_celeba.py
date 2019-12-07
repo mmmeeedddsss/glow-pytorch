@@ -53,6 +53,18 @@ def save_images(images, names):
         cv2.waitKey()
 
 
+def show_selection_belnd(z_base1, z_base2, z_base):
+    base_img1 = run_z(graph, z_base1)
+    base_img2 = run_z(graph, z_base2)
+    blend_img = run_z(graph, z_base)
+    cv2.imshow("base_img1", base_img1)
+    cv2.waitKey()
+    cv2.imshow("base_img2", base_img2)
+    cv2.waitKey()
+    cv2.imshow("blend_img", blend_img)
+    cv2.waitKey()
+
+
 if __name__ == "__main__":
     args = docopt(__doc__)
     hparams = args["<hparams>"]
@@ -101,17 +113,40 @@ if __name__ == "__main__":
         print("Finish generating")
 
     # interact with user
-    base_index = select_index("base image", 0, len(dataset))
     attr_index = select_index("attritube", 0, len(delta_Z), dataset.attrs)
     attr_name = dataset.attrs[attr_index]
     z_delta = delta_Z[attr_index]
+    delta_image = run_z(graph, z_delta)
+    cv2.imshow(f"delta_img", delta_image)
     graph.eval()
-    z_base = graph.generate_z(dataset[base_index]["x"])
-    # begin to generate new image
-    images = []
-    names = []
-    images.append(run_z(graph, z_base))
-    names.append("reconstruct_origin")
+    while True:
+        base_index1 = select_index("base image1", 0, len(dataset))
+
+        initial_one_hot = dataset[base_index1]['y_onehot']
+        for index, data in enumerate(dataset):
+            if sum(abs(initial_one_hot - data['y_onehot'])) < 5 and not initial_one_hot[20] == data['y_onehot'][20]:
+                base_index2 = index
+                break
+
+        print(f"Using base indicees {base_index1} {base_index2}")
+
+
+        z_base1 = graph.generate_z(dataset[base_index1]["x"])
+        z_base2 = graph.generate_z(dataset[base_index2]["x"])
+
+        z_blend = (z_base1 + z_base2) / 2
+        blend_img = run_z(graph, z_blend)
+
+        show_selection_belnd(z_base1, z_base2, z_blend)
+
+        interplate_n = 10
+        for i in range(-interplate_n, interplate_n + 1, 2):
+            d = z_delta * float(i) / float(interplate_n)
+            modified_image = run_z(graph, z_blend - d)
+            cv2.imshow(f"blend_img_{i}", modified_image)
+        cv2.waitKey()
+        cv2.destroyAllWindows()
+"""
     interplate_n = 5
     for i in range(0, interplate_n+1):
         d = z_delta * float(i) / float(interplate_n)
@@ -120,4 +155,6 @@ if __name__ == "__main__":
         if i > 0:
             images.append(run_z(graph, z_base - d))
             names.append("attr_{}_{}".format(attr_name, interplate_n - i))
+    
     save_images(images, names)
+"""

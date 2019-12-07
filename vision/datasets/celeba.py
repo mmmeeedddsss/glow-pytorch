@@ -84,7 +84,7 @@ class CelebADataset(Dataset):
 
 if __name__ == "__main__":
     import cv2
-    celeba = CelebADataset("/home/chaiyujin/Downloads/Dataset/CelebA")
+    celeba = CelebADataset("~/Downloads/celeba/dataset")
     d = celeba[0]
     print(d["x"].size())
     img = d["x"].permute(1, 2, 0).contiguous().numpy()
