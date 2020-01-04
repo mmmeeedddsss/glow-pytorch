@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 import datetime
 import numpy as np
+from torch.utils.data.sampler import SubsetRandomSampler
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
@@ -22,9 +23,9 @@ class Trainer(object):
         # set members
         # append date info
         date = str(datetime.datetime.now())
-        date = date[:date.rfind(":")].replace("-", "")\
-                                     .replace(":", "")\
-                                     .replace(" ", "_")
+        date = date[:date.rfind(":")].replace("-", "") \
+            .replace(":", "") \
+            .replace(" ", "_")
         self.log_dir = os.path.join(hparams.Dir.log_root, "log_" + date)
         self.checkpoints_dir = os.path.join(self.log_dir, "checkpoints")
         if not os.path.exists(self.log_dir):
@@ -47,13 +48,32 @@ class Trainer(object):
         self.data_device = data_device
         # number of training batches
         self.batch_size = hparams.Train.batch_size
-        self.data_loader = DataLoader(dataset,
-                                      batch_size=self.batch_size,
-                                    #   num_workers=8,
-                                      shuffle=True,
-                                      drop_last=True)
-        self.n_epoches = (hparams.Train.num_batches+len(self.data_loader)-1)
-        self.n_epoches = self.n_epoches // len(self.data_loader)
+
+        indices = list(range(len(dataset)))
+        np.random.seed(42)
+        np.random.shuffle(indices)
+        split = len(dataset) // 10
+        train_indices, val_indices = indices[split:], indices[:split]
+
+        # Creating PT data samplers and loaders:
+        train_sampler = SubsetRandomSampler(train_indices)
+        valid_sampler = SubsetRandomSampler(val_indices)
+
+        self.train_data_loader = DataLoader(dataset,
+                                            batch_size=self.batch_size,
+                                            #num_workers=4,
+                                            drop_last=True,
+                                            sampler=train_sampler)
+
+        self.validation_data_loader = DataLoader(dataset,
+                                                 batch_size=self.batch_size,
+                                                 #num_workers=4,
+                                                 drop_last=True,
+                                                 sampler=valid_sampler)
+
+        self.n_epoches = (hparams.Train.num_batches + len(self.train_data_loader) - 1)
+        self.n_epoches = self.n_epoches // len(self.train_data_loader)
+        print("n_epochs :", self.n_epoches)
         self.global_step = 0
         # lr schedule
         self.lrschedule = lrschedule
@@ -72,13 +92,21 @@ class Trainer(object):
         self.inference_gap = hparams.Train.inference_gap
 
     def train(self):
+        ma = []
+
+        with open('val_losses.txt', 'a+') as f:
+            f.write('\n Starting Training {}\n'.format(datetime.datetime.now()))
+
+        with open('train_losses.txt', 'a+') as f:
+            f.write('\n Starting Training {}\n'.format(datetime.datetime.now()))
+
         # set to training state
         self.graph.train()
         self.global_step = self.loaded_step
         # begin to train
         for epoch in range(self.n_epoches):
             print("epoch", epoch)
-            progress = tqdm(self.data_loader)
+            progress = tqdm(self.train_data_loader)
             for i_batch, batch in enumerate(progress):
                 # update learning rate
                 lr = self.lrschedule["func"](global_step=self.global_step,
@@ -116,6 +144,16 @@ class Trainer(object):
 
                 # loss
                 loss_generative = Glow.loss_generative(nll)
+                ma.append(loss_generative.item())
+                if len(ma) > 20:
+                    ma = ma[1:]
+
+                if not i_batch % 10:
+                    print(np.mean(ma))
+
+                    with open('train_losses.txt', 'a+') as f:
+                        f.write(','+str(np.mean(ma)))
+
                 loss_classes = 0
                 if self.y_condition:
                     loss_classes = (Glow.loss_multi_classes(y_logits, y_onehot)
@@ -160,9 +198,37 @@ class Trainer(object):
                                                   self.y_classes)
                         y_true = y_onehot
                     for bi in range(min([len(img), 4])):
-                        self.writer.add_image("0_reverse/{}".format(bi), torch.cat((img[bi], batch["x"][bi]), dim=1), self.global_step)
+                        self.writer.add_image("0_reverse/{}".format(bi), torch.cat((img[bi], batch["x"][bi]), dim=1),
+                                              self.global_step)
                         if self.y_condition:
-                            self.writer.add_image("1_prob/{}".format(bi), plot_prob([y_pred[bi], y_true[bi]], ["pred", "true"]), self.global_step)
+                            self.writer.add_image("1_prob/{}".format(bi),
+                                                  plot_prob([y_pred[bi], y_true[bi]], ["pred", "true"]),
+                                                  self.global_step)
+
+                # Validation set loss
+                if self.global_step % 500 == 0 and self.global_step > 200:
+                    ma = []
+                    with torch.no_grad():
+                        print('Calculating validation set loss')
+                        for i_batch, batch in enumerate(tqdm(self.validation_data_loader)):
+                            # update learning rate
+                            # get batch data
+                            for k in batch:
+                                batch[k] = batch[k].to(self.data_device)
+                            x = batch["x"]
+
+                            # forward phase
+                            z, nll, y_logits = self.graph(x=x, y_onehot=y_onehot)
+
+                            # loss
+                            loss_generative = Glow.loss_generative(nll)
+                            ma.append(loss_generative.item())
+
+                        print(np.mean(ma))
+
+                        with open('val_losses.txt', 'a+') as f:
+                            f.write(','+str(np.mean(ma)))
+                    ma = []
 
                 # inference
                 if hasattr(self, "inference_gap"):

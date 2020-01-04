@@ -102,5 +102,5 @@ def build(hparams, is_training):
         "lrschedule": lrschedule,
         "devices": devices,
         "data_device": data_gpu if not use_cpu else "cpu",
-        "loaded_step": loaded_step
+        "loaded_step": loaded_step if loaded_step is not None else 0
     }

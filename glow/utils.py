@@ -57,7 +57,7 @@ def _file_at_step(step):
 
 
 def _file_best():
-    return "trained.pkg"
+    return "trained_.pkg"
 
 
 def save(global_step, graph, optim, criterion_dict=None, pkg_dir="", is_best=False, max_checkpoints=None):
@@ -118,8 +118,8 @@ def load(step_or_path, graph, optim=None, criterion_dict=None, pkg_dir="", devic
     state = torch.load(save_path, map_location=device)
     global_step = state["global_step"]
     graph.load_state_dict(state["graph"])
-    if optim is not None:
-        optim.load_state_dict(state["optim"])
+    """if optim is not None:
+        optim.load_state_dict(state["optim"])"""
     if criterion_dict is not None:
         for k in criterion_dict:
             criterion_dict[k].load_state_dict(state["criterion"][k])
