@@ -4,15 +4,21 @@ Usage:
     infer_celeba.py <hparams> <dataset_root> <z_dir>
 """
 import os
+import pickle
+
 import cv2
 import random
 import torch
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
 import vision
 import numpy as np
 from docopt import docopt
 from torchvision import transforms
 from glow.builder import build
 from glow.config import JsonConfig
+import imageio
 
 
 def select_index(name, l, r, description=None):
@@ -52,11 +58,15 @@ def save_images(images, names):
         cv2.imshow("img", img)
         cv2.waitKey()
 
+def draw_original(d, i):
+    img = d.permute(1, 2, 0).contiguous().numpy()
+    img = cv2.resize(img, (256, 256))
+    cv2.imshow(f"img_{i}", img)
 
 def show_selection_belnd(z_base1, z_base2, z_base):
-    base_img1 = run_z(graph, z_base1)
-    base_img2 = run_z(graph, z_base2)
-    blend_img = run_z(graph, z_base)
+    base_img1 = (run_z(graph, z_base1) )
+    base_img2 = (run_z(graph, z_base2) )
+    blend_img = (run_z(graph, z_base) )
     cv2.imshow("base_img1", base_img1)
     cv2.waitKey()
     cv2.imshow("base_img2", base_img2)
@@ -82,12 +92,12 @@ if __name__ == "__main__":
         print("Load Z from {}".format(z_dir))
         generate_z = False
 
-    hparams = JsonConfig("hparams/celeba.json")
-    dataset = vision.Datasets["celeba"]
+    hparams = JsonConfig("hparams/cars.json")
+    dataset = vision.Datasets["stanfordcars"]
     # set transform of dataset
     transform = transforms.Compose([
-        transforms.CenterCrop(hparams.Data.center_crop),
-        transforms.Resize(hparams.Data.resize),
+        transforms.Resize(64),
+        transforms.CenterCrop(64),
         transforms.ToTensor()])
     # build
     graph = build(hparams, False)["graph"]
@@ -105,58 +115,33 @@ if __name__ == "__main__":
             # need to generate
             generate_z = True
             print("Failed to load {} Z".format(hparams.Glow.y_classes))
-            quit()
+
     if generate_z:
         delta_Z = graph.generate_attr_deltaz(dataset)
         for i, z in enumerate(delta_Z):
             np.save(os.path.join(z_dir, "detla_z_{}.npy".format(i)), z)
         print("Finish generating")
 
-    # interact with user
-    attr_index = select_index("attritube", 0, len(delta_Z), dataset.attrs)
-    attr_name = dataset.attrs[attr_index]
-    z_delta = delta_Z[attr_index]
-    delta_image = run_z(graph, z_delta)
-    cv2.imshow(f"delta_img", delta_image)
+    mp = {}
+
+    data_loader = DataLoader(dataset,
+                             batch_size=1,
+                             num_workers=4,
+                             shuffle=True,
+                             drop_last=True)
+
+    progress = tqdm(data_loader)
     graph.eval()
-    while True:
-        base_index1 = select_index("base image1", 0, len(dataset))
+    for i_batch, batch in enumerate(progress):
 
-        initial_one_hot = dataset[base_index1]['y_onehot']
-        for index, data in enumerate(dataset):
-            if sum(abs(initial_one_hot - data['y_onehot'])) < 5 and not initial_one_hot[20] == data['y_onehot'][20]:
-                base_index2 = index
-                break
+        img = np.squeeze(batch["x"], axis=0)
+        path = np.squeeze(batch["path"], axis=0)
+        path = str(path).split('/')[-1]
 
-        print(f"Using base indicees {base_index1} {base_index2}")
+        z = graph.generate_z(img)
 
+        mp[path] = z
 
-        z_base1 = graph.generate_z(dataset[base_index1]["x"])
-        z_base2 = graph.generate_z(dataset[base_index2]["x"])
-
-        print(np.max(z_base1), np.min(z_base1))
-
-        z_blend = (z_base1 + z_base2) / 2
-        blend_img = run_z(graph, z_blend)
-
-        show_selection_belnd(z_base1, z_base2, z_blend)
-
-        interplate_n = 10
-        for i in range(-interplate_n, interplate_n + 1, 2):
-            d = z_delta * float(i) / float(interplate_n)
-            modified_image = run_z(graph, z_blend - d)
-            cv2.imshow(f"blend_img_{i}", modified_image)
-        cv2.waitKey()
-        cv2.destroyAllWindows()
-"""
-    interplate_n = 5
-    for i in range(0, interplate_n+1):
-        d = z_delta * float(i) / float(interplate_n)
-        images.append(run_z(graph, z_base + d))
-        names.append("attr_{}_{}".format(attr_name, interplate_n + i))
-        if i > 0:
-            images.append(run_z(graph, z_base - d))
-            names.append("attr_{}_{}".format(attr_name, interplate_n - i))
-    
-    save_images(images, names)
-"""
+        if i_batch % 1000 == 0:
+            with open('z_path_map_stanford.pkl', 'wb+') as f:
+                pickle.dump(mp, f, pickle.HIGHEST_PROTOCOL)

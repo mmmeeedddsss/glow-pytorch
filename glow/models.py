@@ -123,6 +123,7 @@ class FlowNet(nn.Module):
         H, W, C = image_shape
         assert C == 1 or C == 3, ("image_shape should be HWC, like (64, 64, 3)"
                                   "C == 1 or C == 3")
+
         for i in range(L):
             # 1. Squeeze
             C, H, W = C * 4, H // 2, W // 2
@@ -181,6 +182,7 @@ class Glow(nn.Module):
                             LU_decomposed=hparams.Glow.LU_decomposed)
         self.hparams = hparams
         self.y_classes = hparams.Glow.y_classes
+        print('self.flow.output_shapes', self.flow.output_shapes[-1])
         # for prior
         if hparams.Glow.learn_top:
             C = self.flow.output_shapes[-1][1]

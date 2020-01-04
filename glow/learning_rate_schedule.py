@@ -6,7 +6,7 @@ def default(init_lr, global_step):
 
 
 # https://github.com/tensorflow/tensor2tensor/issues/280#issuecomment-339110329
-def noam_learning_rate_decay(init_lr, global_step, warmup_steps=4000, minimum=None):
+def noam_learning_rate_decay(init_lr=None, global_step=0, warmup_steps=4000, minimum=None):
      # Noam scheme from tensor2tensor:
     warmup_steps = float(warmup_steps)
     step = global_step + 1.

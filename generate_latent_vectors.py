@@ -5,8 +5,12 @@ Usage:
 """
 import os
 import cv2
+import pickle
 import random
 import torch
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
 import vision
 import numpy as np
 from docopt import docopt
@@ -53,10 +57,16 @@ def save_images(images, names):
         cv2.waitKey()
 
 
+def draw_original(d, i):
+    img = d.permute(1, 2, 0).contiguous().numpy()
+    img = cv2.resize(img, (256, 256))
+    cv2.imshow(f"img_{i}", img)
+
+
 def show_selection_belnd(z_base1, z_base2, z_base):
-    base_img1 = run_z(graph, z_base1)
-    base_img2 = run_z(graph, z_base2)
-    blend_img = run_z(graph, z_base)
+    base_img1 = (run_z(graph, z_base1))
+    base_img2 = (run_z(graph, z_base2))
+    blend_img = (run_z(graph, z_base))
     cv2.imshow("base_img1", base_img1)
     cv2.waitKey()
     cv2.imshow("base_img2", base_img2)
@@ -112,34 +122,61 @@ if __name__ == "__main__":
             np.save(os.path.join(z_dir, "detla_z_{}.npy".format(i)), z)
         print("Finish generating")
 
-    # interact with user
-    attr_index = select_index("attritube", 0, len(delta_Z), dataset.attrs)
-    attr_name = dataset.attrs[attr_index]
-    z_delta = delta_Z[attr_index]
-    delta_image = run_z(graph, z_delta)
-    cv2.imshow(f"delta_img", delta_image)
-    graph.eval()
-    while True:
-        base_index1 = select_index("base image1", 0, len(dataset))
+    mp = {}
 
-        initial_one_hot = dataset[base_index1]['y_onehot']
-        for index, data in enumerate(dataset):
-            if sum(abs(initial_one_hot - data['y_onehot'])) < 5 and not initial_one_hot[20] == data['y_onehot'][20]:
-                base_index2 = index
-                break
+    data_loader = DataLoader(dataset,
+                             batch_size=1,
+                             num_workers=4,
+                             shuffle=True,
+                             drop_last=True)
+
+    progress = tqdm(data_loader)
+    graph.eval()
+    for i_batch, batch in enumerate(progress):
+
+        img = np.squeeze(batch["x"], axis=0)
+        path = np.squeeze(batch["path"], axis=0)
+        path = str(path).split('/')[-1]
+
+        z = graph.generate_z(img)
+
+        mp[path] = z
+
+        if i_batch % 1000 == 0:
+            with open('z_path_map_celeba.pkl', 'wb+') as f:
+                pickle.dump(mp, f, pickle.HIGHEST_PROTOCOL)
+
+        continue
+        base_index1 = select_index("base image1", 0, len(dataset))
+        base_index2 = select_index("base image2", 0, len(dataset))
 
         print(f"Using base indicees {base_index1} {base_index2}")
-
 
         z_base1 = graph.generate_z(dataset[base_index1]["x"])
         z_base2 = graph.generate_z(dataset[base_index2]["x"])
 
-        print(np.max(z_base1), np.min(z_base1))
+        print(z_base2.shape)
+
+        draw_original(dataset[base_index1]["x"], 1)
+        draw_original(dataset[base_index2]["x"], 2)
 
         z_blend = (z_base1 + z_base2) / 2
         blend_img = run_z(graph, z_blend)
 
         show_selection_belnd(z_base1, z_base2, z_blend)
+
+        cv2.destroyAllWindows()
+
+        print(z_base1.shape)
+
+        for i in range(10):
+            print(z_base1.shape)
+            modified_image = (run_z(graph, z_base1))
+            cv2.imshow(f"blend_img_{i}", modified_image)
+            cv2.waitKey()
+            z_base1 += 0.02
+
+        continue
 
         interplate_n = 10
         for i in range(-interplate_n, interplate_n + 1, 2):
@@ -148,15 +185,3 @@ if __name__ == "__main__":
             cv2.imshow(f"blend_img_{i}", modified_image)
         cv2.waitKey()
         cv2.destroyAllWindows()
-"""
-    interplate_n = 5
-    for i in range(0, interplate_n+1):
-        d = z_delta * float(i) / float(interplate_n)
-        images.append(run_z(graph, z_base + d))
-        names.append("attr_{}_{}".format(attr_name, interplate_n + i))
-        if i > 0:
-            images.append(run_z(graph, z_base - d))
-            names.append("attr_{}_{}".format(attr_name, interplate_n - i))
-    
-    save_images(images, names)
-"""
